@@ -356,6 +356,7 @@ const StyleNameToPrompt = {
 pack.addFormula({
   name: "CreateDalleImage",
   description: "Create image from prompt",
+  cacheTtlSecs: 60 * 60,
   parameters: [
     coda.makeParameter({
       type: coda.ParameterType.String,
