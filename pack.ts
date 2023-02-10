@@ -31,7 +31,7 @@ async function getCompletion(
 const modelParameter = coda.makeParameter({
   type: coda.ParameterType.String,
   name: "model",
-  description: "the GPT-3 model to use, can be ",
+  description: "the GPT-3 model to process your request. If you don't specify a model, it defaults to text-ada-001, which is the fastest and lowest cost. For higher quality generation, consider text-davinci-003. For more information, see https://platform.openai.com/docs/models/overview.",
   optional: true,
   autocomplete: async () => {
     return [
