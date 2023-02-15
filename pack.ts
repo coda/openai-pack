@@ -8,6 +8,8 @@ pack.setUserAuthentication({
 
 pack.addNetworkDomain("openai.com");
 
+const isAction = true;
+
 interface CompletionsRequest {
   model: string;
   prompt: string;
@@ -67,6 +69,7 @@ pack.addFormula({
   description: "Complete text from a prompt",
   parameters: [promptParam, modelParameter, numTokensParam, temperatureParam],
   resultType: coda.ValueType.String,
+  isAction,
   execute: async function (
     [prompt, model = "text-davinci-002", max_tokens = 512, temperature],
     context
@@ -114,6 +117,7 @@ pack.addFormula({
     temperatureParam,
   ],
   resultType: coda.ValueType.String,
+  isAction,
   execute: async function (
     [
       prompt,
@@ -160,6 +164,7 @@ pack.addFormula({
     "Answer a question, simply provide a natural language question that you might ask Google or Wikipedia",
   parameters: [promptParam, modelParameter, numTokensParam, temperatureParam],
   resultType: coda.ValueType.String,
+  isAction,
   execute: async function (
     [prompt, model = "text-davinci-002", max_tokens = 128, temperature],
     context
@@ -212,6 +217,7 @@ pack.addFormula({
   description: "Summarize a large chunk of text",
   parameters: [promptParam, modelParameter, numTokensParam, temperatureParam],
   resultType: coda.ValueType.String,
+  isAction,
   execute: async function (
     [prompt, model = "text-davinci-002", max_tokens = 64, temperature],
     context
@@ -240,6 +246,7 @@ pack.addFormula({
   description: "Extract keywords from a large chunk of text",
   parameters: [promptParam, modelParameter, numTokensParam, temperatureParam],
   resultType: coda.ValueType.String,
+  isAction,
   execute: async function (
     [prompt, model = "text-davinci-002", max_tokens = 64, temperature],
     context
@@ -269,6 +276,7 @@ pack.addFormula({
   description: "Generate a color for a mood",
   parameters: [promptParam, modelParameter, numTokensParam, temperatureParam],
   resultType: coda.ValueType.String,
+  isAction,
   execute: async function (
     [prompt, model = "text-davinci-002", max_tokens = 6, temperature],
     context
@@ -299,6 +307,7 @@ pack.addFormula({
     "Categorizes sentiment of text into positive, neutral, or negative",
   parameters: [promptParam, modelParameter, numTokensParam, temperatureParam],
   resultType: coda.ValueType.String,
+  isAction,
   execute: async function (
     [prompt, model = "text-davinci-002", max_tokens = 20, temperature],
     context
@@ -375,6 +384,7 @@ pack.addFormula({
     styleParameter,
   ],
   resultType: coda.ValueType.String,
+  isAction,
   codaType: coda.ValueHintType.ImageReference,
   execute: async function ([prompt, size = "512x512", style], context) {
     if (prompt.length === 0) {
