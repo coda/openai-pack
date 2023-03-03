@@ -15,10 +15,49 @@ interface CompletionsRequest {
   temperature?: number;
 }
 
+interface ChatCompletionMessage {
+  role: 'system' | 'user';
+  content: string;
+}
+
+interface ChatCompletionRequest {
+  model: string;
+  messages: ChatCompletionMessage[];
+  max_tokens?: number;
+  temperature?: number;
+}
+
+function isChatCompletionModel(model: string): boolean {
+  // Also works with snapshot model `gpt-3.5-turbo-0301`
+  return model.includes('gpt-3.5-turbo');
+}
+
+async function getChatCompletion(context: coda.ExecutionContext, request: ChatCompletionRequest): Promise<string> {
+  const resp = await context.fetcher.fetch({
+    url: "https://api.openai.com/v1/chat/completions",
+    method: "POST",
+    body: JSON.stringify(request),
+    headers: { "Content-Type": "application/json" },
+  });
+  return resp.body.choices[0].message.content.trim();
+}
+
 async function getCompletion(
   context: coda.ExecutionContext,
   request: CompletionsRequest
 ): Promise<string> {
+  // Call Chat Completion API if the model is a chat completion model.
+  if (isChatCompletionModel(request.model)) {
+    return getChatCompletion(context, {
+      model: request.model,
+      max_tokens: request.max_tokens,
+      temperature: request.temperature,
+      messages: [
+        {role: "user", content: request.prompt}
+      ],
+    });
+  }
+
   const resp = await context.fetcher.fetch({
     url: "https://api.openai.com/v1/completions",
     method: "POST",
@@ -27,6 +66,12 @@ async function getCompletion(
   });
   return resp.body.choices[0].text.trim();
 }
+
+const promptParam = coda.makeParameter({
+  type: coda.ParameterType.String,
+  name: "prompt",
+  description: "prompt",
+});
 
 const modelParameter = coda.makeParameter({
   type: coda.ParameterType.String,
@@ -42,6 +87,7 @@ const modelParameter = coda.makeParameter({
     ];
   },
 });
+
 const numTokensParam = coda.makeParameter({
   type: coda.ParameterType.Number,
   name: "numTokens",
@@ -49,6 +95,7 @@ const numTokensParam = coda.makeParameter({
     "the maximum number of tokens for the completion to output. Defaults to 512. Maximum of 2048 for most models and 4000 for davinci",
   optional: true,
 });
+
 const temperatureParam = coda.makeParameter({
   type: coda.ParameterType.Number,
   name: "temperature",
@@ -56,10 +103,51 @@ const temperatureParam = coda.makeParameter({
     "the temperature for how creative GPT-3 is with the completion. Must be between 0.0 and 1.0. Defaults to 1.0.",
   optional: true,
 });
-const promptParam = coda.makeParameter({
+
+const systemPromptParam = coda.makeParameter({
   type: coda.ParameterType.String,
-  name: "prompt",
-  description: "prompt",
+  name: "systemPrompt",
+  description: "Optional. Helps define the behavior of the assistant. e.g. 'You are a helpful assistant.'",
+  optional: true,
+});
+
+pack.addFormula({
+  name: "ChatCompletion",
+  description: "Takes prompt as input, and return a model-generated message as output. Optionally, you can provide a system message to control the behavior of the chatbot.",
+  parameters: [promptParam, systemPromptParam, modelParameter, numTokensParam, temperatureParam],
+  resultType: coda.ValueType.String,
+  execute: async function (
+    [userPrompt, systemPrompt, model = "gpt-3.5-turbo", maxTokens = 512, temperature],
+    context
+  ) {
+    coda.assertCondition(
+      isChatCompletionModel(model),
+      "Must use `gpt-3.5-turbo`-related models for this formula.",
+    );
+
+    if (userPrompt.length === 0) {
+      return "";
+    }
+
+    const messages: ChatCompletionMessage[] = [];
+
+    if (systemPrompt && systemPrompt.length > 0) {
+      messages.push({role: 'system', content: systemPrompt});
+    }
+
+    messages.push({role: 'user', content: userPrompt});
+
+    const request = {
+      model,
+      messages,
+      max_tokens: maxTokens,
+      temperature,
+    };
+
+    const result = await getChatCompletion(context, request);
+
+    return result;
+  },
 });
 
 pack.addFormula({
