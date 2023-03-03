@@ -1,12 +1,15 @@
-import * as coda from "@codahq/packs-sdk";
+import * as coda from '@codahq/packs-sdk';
 
 export const pack = coda.newPack();
 
+const DEFAULT_MODEL = 'text-ada-001';
+
 pack.setUserAuthentication({
   type: coda.AuthenticationType.HeaderBearerToken,
+  instructionsUrl: 'https://platform.openai.com/account/api-keys',
 });
 
-pack.addNetworkDomain("openai.com");
+pack.addNetworkDomain('openai.com');
 
 interface CompletionsRequest {
   model: string;
@@ -34,99 +37,122 @@ function isChatCompletionModel(model: string): boolean {
 
 async function getChatCompletion(context: coda.ExecutionContext, request: ChatCompletionRequest): Promise<string> {
   const resp = await context.fetcher.fetch({
-    url: "https://api.openai.com/v1/chat/completions",
-    method: "POST",
+    url: 'https://api.openai.com/v1/chat/completions',
+    method: 'POST',
     body: JSON.stringify(request),
-    headers: { "Content-Type": "application/json" },
+    headers: {'Content-Type': 'application/json'},
   });
   return resp.body.choices[0].message.content.trim();
 }
 
-async function getCompletion(
-  context: coda.ExecutionContext,
-  request: CompletionsRequest
-): Promise<string> {
-  // Call Chat Completion API if the model is a chat completion model.
-  if (isChatCompletionModel(request.model)) {
-    return getChatCompletion(context, {
-      model: request.model,
-      max_tokens: request.max_tokens,
-      temperature: request.temperature,
-      messages: [
-        {role: "user", content: request.prompt}
-      ],
-    });
-  }
+async function getCompletion(context: coda.ExecutionContext, request: CompletionsRequest): Promise<string> {
+  try {
+    // Call Chat Completion API if the model is a chat completion model.
+    if (isChatCompletionModel(request.model)) {
+      return getChatCompletion(context, {
+        model: request.model,
+        max_tokens: request.max_tokens,
+        temperature: request.temperature,
+        messages: [{role: 'user', content: request.prompt}],
+      });
+    }
 
-  const resp = await context.fetcher.fetch({
-    url: "https://api.openai.com/v1/completions",
-    method: "POST",
-    body: JSON.stringify(request),
-    headers: { "Content-Type": "application/json" },
-  });
-  return resp.body.choices[0].text.trim();
+    const resp = await context.fetcher.fetch({
+      url: 'https://api.openai.com/v1/completions',
+      method: 'POST',
+      body: JSON.stringify(request),
+      headers: {'Content-Type': 'application/json'},
+    });
+    return resp.body.choices[0].text.trim();
+  } catch (err: any) {
+    if (err.statusCode === 429 && err.type === 'insufficient_quota') {
+      throw new coda.UserVisibleError(
+        "You've exceed your current OpenAI API quota. Please check your plan and billing details. For help, see https://help.openai.com/en/articles/6891831-error-code-429-you-exceeded-your-current-quota-please-check-your-plan-and-billing-details",
+      );
+    }
+
+    throw err;
+  }
 }
 
 const promptParam = coda.makeParameter({
   type: coda.ParameterType.String,
-  name: "prompt",
-  description: "prompt",
+  name: 'prompt',
+  description: 'prompt',
 });
 
 const modelParameter = coda.makeParameter({
   type: coda.ParameterType.String,
-  name: "model",
-  description: "the GPT-3 model to process your request. If you don't specify a model, it defaults to text-ada-001, which is the fastest and lowest cost. For higher quality generation, consider text-davinci-003. For more information, see https://platform.openai.com/docs/models/overview.",
+  name: 'model',
+  description:
+    "the GPT-3 model to process your request. If you don't specify a model, it defaults to text-ada-001, which is the fastest and lowest cost. For higher quality generation, consider text-davinci-003. For more information, see https://platform.openai.com/docs/models/overview.",
   optional: true,
   autocomplete: async () => {
     return [
-      "text-davinci-002",
-      "text-curie-001",
-      "text-babbage-001",
-      "text-ada-001",
+      'text-davinci-003',
+      'text-davinci-002',
+      'text-curie-001',
+      'text-babbage-001',
+      'text-ada-001',
+      'gpt-3.5-turbo',
     ];
   },
 });
 
 const numTokensParam = coda.makeParameter({
   type: coda.ParameterType.Number,
-  name: "numTokens",
+  name: 'numTokens',
   description:
-    "the maximum number of tokens for the completion to output. Defaults to 512. Maximum of 2048 for most models and 4000 for davinci",
+    'the maximum number of tokens for the completion to output. Defaults to 512. Maximum of 2048 for most models and 4000 for davinci',
   optional: true,
 });
 
 const temperatureParam = coda.makeParameter({
   type: coda.ParameterType.Number,
-  name: "temperature",
+  name: 'temperature',
   description:
-    "the temperature for how creative GPT-3 is with the completion. Must be between 0.0 and 1.0. Defaults to 1.0.",
+    'the temperature for how creative GPT-3 is with the completion. Must be between 0.0 and 1.0. Defaults to 1.0.',
   optional: true,
 });
 
 const systemPromptParam = coda.makeParameter({
   type: coda.ParameterType.String,
-  name: "systemPrompt",
+  name: 'systemPrompt',
   description: "Optional. Helps define the behavior of the assistant. e.g. 'You are a helpful assistant.'",
   optional: true,
 });
 
+const commonPromptParams = {
+  parameters: [promptParam, modelParameter, numTokensParam, temperatureParam],
+  resultType: coda.ValueType.String,
+  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 512, temperature], context) {
+    if (prompt.length === 0) {
+      return '';
+    }
+
+    const request = {
+      model,
+      prompt,
+      max_tokens,
+      temperature,
+    };
+
+    const result = await getCompletion(context, request);
+    return result;
+  },
+};
+
 pack.addFormula({
-  name: "ChatCompletion",
-  description: "Takes prompt as input, and return a model-generated message as output. Optionally, you can provide a system message to control the behavior of the chatbot.",
+  name: 'ChatCompletion',
+  description:
+    'Takes prompt as input, and return a model-generated message as output. Optionally, you can provide a system message to control the behavior of the chatbot.',
   parameters: [promptParam, systemPromptParam, modelParameter, numTokensParam, temperatureParam],
   resultType: coda.ValueType.String,
-  execute: async function (
-    [userPrompt, systemPrompt, model = "gpt-3.5-turbo", maxTokens = 512, temperature],
-    context
-  ) {
-    coda.assertCondition(
-      isChatCompletionModel(model),
-      "Must use `gpt-3.5-turbo`-related models for this formula.",
-    );
+  execute: async function ([userPrompt, systemPrompt, model = 'gpt-3.5-turbo', maxTokens = 512, temperature], context) {
+    coda.assertCondition(isChatCompletionModel(model), 'Must use `gpt-3.5-turbo`-related models for this formula.');
 
     if (userPrompt.length === 0) {
-      return "";
+      return '';
     }
 
     const messages: ChatCompletionMessage[] = [];
@@ -151,51 +177,44 @@ pack.addFormula({
 });
 
 pack.addFormula({
-  name: "GPT3Prompt",
-  description: "Complete text from a prompt",
-  parameters: [promptParam, modelParameter, numTokensParam, temperatureParam],
-  resultType: coda.ValueType.String,
-  execute: async function (
-    [prompt, model = "text-davinci-002", max_tokens = 512, temperature],
-    context
-  ) {
-    if (prompt.length === 0) {
-      return "";
-    }
-
-    const request = {
-      model,
-      prompt,
-      max_tokens,
-      temperature,
-    };
-
-    const result = await getCompletion(context, request);
-
-    return result;
-  },
-});
+  name: 'GPT3Prompt',
+  description: 'Complete text from a prompt',
+  ...commonPromptParams,
+  isExperimental: true,
+} as any);
 
 pack.addFormula({
-  name: "GPT3PromptExamples",
-  description: "Complete text from a prompt and a set of examples",
+  name: 'Prompt',
+  description: 'Complete text from a prompt',
+  ...commonPromptParams,
+} as any);
+
+pack.addFormula({
+  name: 'AnswerPrompt',
+  description:
+    'Complete text from a prompt, outputs the result from the action. This should only be used in a table in combination with outputting the result to a result column; otherwise, it takes no effect.',
+  ...commonPromptParams,
+  isAction: true,
+} as any);
+
+pack.addFormula({
+  name: 'GPT3PromptExamples',
+  description: 'Complete text from a prompt and a set of examples',
   parameters: [
     coda.makeParameter({
       type: coda.ParameterType.String,
-      name: "prompt",
-      description: "prompt",
+      name: 'prompt',
+      description: 'prompt',
     }),
     coda.makeParameter({
       type: coda.ParameterType.StringArray,
-      name: "trainingPrompts",
-      description:
-        "Example prompts. Should be the same length as `trainingResponses`",
+      name: 'trainingPrompts',
+      description: 'Example prompts. Should be the same length as `trainingResponses`',
     }),
     coda.makeParameter({
       type: coda.ParameterType.StringArray,
-      name: "trainingResponses",
-      description:
-        "Example responses corresponding to `trainingPrompts`. Should be the same length.",
+      name: 'trainingResponses',
+      description: 'Example responses corresponding to `trainingPrompts`. Should be the same length.',
     }),
     modelParameter,
     numTokensParam,
@@ -203,35 +222,23 @@ pack.addFormula({
   ],
   resultType: coda.ValueType.String,
   execute: async function (
-    [
-      prompt,
-      trainingPrompts,
-      trainingResponses,
-      model = "text-davinci-002",
-      max_tokens = 512,
-      temperature,
-    ],
-    context
+    [prompt, trainingPrompts, trainingResponses, model = DEFAULT_MODEL, max_tokens = 512, temperature],
+    context,
   ) {
     coda.assertCondition(
       trainingPrompts.length === trainingResponses.length,
-      "Must have same number of example prompts as example responses"
+      'Must have same number of example prompts as example responses',
     );
     if (prompt.length === 0) {
-      return "";
+      return '';
     }
-    coda.assertCondition(
-      trainingResponses.length > 0,
-      "Please provide some training responses"
-    );
+    coda.assertCondition(trainingResponses.length > 0, 'Please provide some training responses');
 
-    const exampleData = trainingPrompts
-      .map((promptEx, i) => `${promptEx}\n${trainingResponses[i]}`)
-      .join("```");
+    const exampleData = trainingPrompts.map((promptEx, i) => `${promptEx}\n${trainingResponses[i]}`).join('```');
 
     const request = {
       model,
-      prompt: exampleData + "```" + prompt + "\n",
+      prompt: exampleData + '```' + prompt + '\n',
       max_tokens,
       temperature,
     };
@@ -243,17 +250,13 @@ pack.addFormula({
 });
 
 pack.addFormula({
-  name: "QuestionAnswer",
-  description:
-    "Answer a question, simply provide a natural language question that you might ask Google or Wikipedia",
+  name: 'QuestionAnswer',
+  description: 'Answer a question, simply provide a natural language question that you might ask Google or Wikipedia',
   parameters: [promptParam, modelParameter, numTokensParam, temperatureParam],
   resultType: coda.ValueType.String,
-  execute: async function (
-    [prompt, model = "text-davinci-002", max_tokens = 128, temperature],
-    context
-  ) {
+  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 128, temperature], context) {
     if (prompt.length === 0) {
-      return "";
+      return '';
     }
 
     const newPrompt = `I am a highly intelligent question answering bot. If you ask me a question that is rooted in truth, I will give you the answer. If you ask me a question that is nonsense, trickery, or has no clear answer, I will respond with "Unknown".
@@ -296,16 +299,13 @@ A: `;
 });
 
 pack.addFormula({
-  name: "Summarize",
-  description: "Summarize a large chunk of text",
+  name: 'Summarize',
+  description: 'Summarize a large chunk of text',
   parameters: [promptParam, modelParameter, numTokensParam, temperatureParam],
   resultType: coda.ValueType.String,
-  execute: async function (
-    [prompt, model = "text-davinci-002", max_tokens = 64, temperature],
-    context
-  ) {
+  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 64, temperature], context) {
     if (prompt.length === 0) {
-      return "";
+      return '';
     }
 
     const newPrompt = `${prompt}\ntldr;\n`;
@@ -324,16 +324,13 @@ pack.addFormula({
 });
 
 pack.addFormula({
-  name: "Keywords",
-  description: "Extract keywords from a large chunk of text",
+  name: 'Keywords',
+  description: 'Extract keywords from a large chunk of text',
   parameters: [promptParam, modelParameter, numTokensParam, temperatureParam],
   resultType: coda.ValueType.String,
-  execute: async function (
-    [prompt, model = "text-davinci-002", max_tokens = 64, temperature],
-    context
-  ) {
+  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 64, temperature], context) {
     if (prompt.length === 0) {
-      return "";
+      return '';
     }
 
     const newPrompt = `Extract keywords from this text:
@@ -353,16 +350,13 @@ ${prompt}`;
 });
 
 pack.addFormula({
-  name: "MoodToColor",
-  description: "Generate a color for a mood",
+  name: 'MoodToColor',
+  description: 'Generate a color for a mood',
   parameters: [promptParam, modelParameter, numTokensParam, temperatureParam],
   resultType: coda.ValueType.String,
-  execute: async function (
-    [prompt, model = "text-davinci-002", max_tokens = 6, temperature],
-    context
-  ) {
+  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 6, temperature], context) {
     if (prompt.length === 0) {
-      return "";
+      return '';
     }
 
     const newPrompt = `The css code for a color like ${prompt}:
@@ -382,17 +376,13 @@ background-color: #`;
 });
 
 pack.addFormula({
-  name: "SentimentClassifier",
-  description:
-    "Categorizes sentiment of text into positive, neutral, or negative",
+  name: 'SentimentClassifier',
+  description: 'Categorizes sentiment of text into positive, neutral, or negative',
   parameters: [promptParam, modelParameter, numTokensParam, temperatureParam],
   resultType: coda.ValueType.String,
-  execute: async function (
-    [prompt, model = "text-davinci-002", max_tokens = 20, temperature],
-    context
-  ) {
+  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 20, temperature], context) {
     if (prompt.length === 0) {
-      return "";
+      return '';
     }
 
     const newPrompt = `Decide whether the text's sentiment is positive, neutral, or negative.
@@ -414,7 +404,7 @@ Sentiment: `;
 
 const styleParameter = coda.makeParameter({
   type: coda.ParameterType.String,
-  name: "style",
+  name: 'style',
   description:
     "the style to use for your image. If you provide this, you don't need to specify the style in the prompt",
   optional: true,
@@ -424,62 +414,62 @@ const styleParameter = coda.makeParameter({
 });
 
 const StyleNameToPrompt = {
-  "Cave wall": "drawn on a cave wall",
-  Basquiat: "in the style of Basquiat",
-  "Digital art": "as digital art",
-  Photorealistic: "in a photorealistic style",
-  "Andy Warhol": "in the style of Andy Warhol",
-  "Pencil drawing": "as a pencil drawing",
-  "1990s Saturday morning cartoon": "as a 1990s Saturday morning cartoon",
-  Steampunk: "in a steampunk style",
-  Solarpunk: "in a solarpunk style",
-  "Studio Ghibli": "in the style of Studio Ghibli",
-  "Movie poster": "as a movie poster",
-  "Book cover": "as a book cover",
-  "Album cover": "as an album cover",
-  "3D Icon": "as a 3D icon",
-  "Ukiyo-e": "in the style of Ukiyo-e",
+  'Cave wall': 'drawn on a cave wall',
+  Basquiat: 'in the style of Basquiat',
+  'Digital art': 'as digital art',
+  Photorealistic: 'in a photorealistic style',
+  'Andy Warhol': 'in the style of Andy Warhol',
+  'Pencil drawing': 'as a pencil drawing',
+  '1990s Saturday morning cartoon': 'as a 1990s Saturday morning cartoon',
+  Steampunk: 'in a steampunk style',
+  Solarpunk: 'in a solarpunk style',
+  'Studio Ghibli': 'in the style of Studio Ghibli',
+  'Movie poster': 'as a movie poster',
+  'Book cover': 'as a book cover',
+  'Album cover': 'as an album cover',
+  '3D Icon': 'as a 3D icon',
+  'Ukiyo-e': 'in the style of Ukiyo-e',
 };
 
 pack.addFormula({
-  name: "CreateDalleImage",
-  description: "Create image from prompt",
+  name: 'CreateDalleImage',
+  description: 'Create image from prompt',
   cacheTtlSecs: 60 * 60,
   parameters: [
     coda.makeParameter({
       type: coda.ParameterType.String,
-      name: "prompt",
-      description: "prompt",
+      name: 'prompt',
+      description: 'prompt',
     }),
     coda.makeParameter({
       type: coda.ParameterType.String,
-      name: "size",
-      description: "size",
+      name: 'size',
+      description: 'size',
       optional: true,
       autocomplete: async () => {
-        return ["256x256", "512x512", "1024x1024"];
+        return ['256x256', '512x512', '1024x1024'];
       },
     }),
     styleParameter,
   ],
   resultType: coda.ValueType.String,
   codaType: coda.ValueHintType.ImageReference,
-  execute: async function ([prompt, size = "512x512", style], context) {
+  execute: async function ([prompt, size = '512x512', style], context) {
     if (prompt.length === 0) {
-      return "";
+      return '';
     }
 
     const request = {
       size,
-      prompt: style ? prompt + " " + StyleNameToPrompt[style] ?? style : prompt,
-      response_format: "b64_json",
+      prompt: style ? prompt + ' ' + StyleNameToPrompt[style] ?? style : prompt,
+      response_format: 'b64_json',
     };
 
     const resp = await context.fetcher.fetch({
-      url: "https://api.openai.com/v1/images/generations",
-      method: "POST",
+      url: 'https://api.openai.com/v1/images/generations',
+      method: 'POST',
       body: JSON.stringify(request),
-      headers: { "Content-Type": "application/json" },
+      headers: {'Content-Type': 'application/json'},
     });
     return `data:image/png;base64,${resp.body.data[0].b64_json}`;
   },
