@@ -31,8 +31,8 @@ interface ChatCompletionRequest {
 }
 
 function isChatCompletionModel(model: string): boolean {
-  // Also works with snapshot model `gpt-3.5-turbo-0301`
-  return model.includes('gpt-3.5-turbo');
+  // Also works with snapshot model like `gpt-3.5-turbo-0301` & `gpt-4-0314`
+  return model.includes('gpt-3.5-turbo') || model.includes('gpt-4');
 }
 
 async function getChatCompletion(context: coda.ExecutionContext, request: ChatCompletionRequest): Promise<string> {
@@ -95,6 +95,8 @@ const modelParameter = coda.makeParameter({
       'text-babbage-001',
       'text-ada-001',
       'gpt-3.5-turbo',
+      'gpt-4',
+      'gpt-4-32k',
     ];
   },
 });
