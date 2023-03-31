@@ -16,6 +16,7 @@ interface CompletionsRequest {
   prompt: string;
   max_tokens?: number;
   temperature?: number;
+  stop?: string[];
 }
 
 interface ChatCompletionMessage {
@@ -28,6 +29,7 @@ interface ChatCompletionRequest {
   messages: ChatCompletionMessage[];
   max_tokens?: number;
   temperature?: number;
+  stop?: string[];
 }
 
 function isChatCompletionModel(model: string): boolean {
@@ -124,10 +126,17 @@ const systemPromptParam = coda.makeParameter({
   optional: true,
 });
 
+const stopParam = coda.makeParameter({
+  type: coda.ParameterType.StringArray,
+  name: 'stop',
+  description: 'Optional. Up to 4 sequences where the API will stop generating further tokens.',
+  optional: true,
+});
+
 const commonPromptParams = {
-  parameters: [promptParam, modelParameter, numTokensParam, temperatureParam],
+  parameters: [promptParam, modelParameter, numTokensParam, temperatureParam, stopParam],
   resultType: coda.ValueType.String,
-  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 512, temperature], context) {
+  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 512, temperature, stop], context) {
     if (prompt.length === 0) {
       return '';
     }
@@ -137,6 +146,7 @@ const commonPromptParams = {
       prompt,
       max_tokens,
       temperature,
+      stop,
     };
 
     const result = await getCompletion(context, request);
@@ -148,9 +158,12 @@ pack.addFormula({
   name: 'ChatCompletion',
   description:
     'Takes prompt as input, and return a model-generated message as output. Optionally, you can provide a system message to control the behavior of the chatbot.',
-  parameters: [promptParam, systemPromptParam, modelParameter, numTokensParam, temperatureParam],
+  parameters: [promptParam, systemPromptParam, modelParameter, numTokensParam, temperatureParam, stopParam],
   resultType: coda.ValueType.String,
-  execute: async function ([userPrompt, systemPrompt, model = 'gpt-3.5-turbo', maxTokens = 512, temperature], context) {
+  execute: async function (
+    [userPrompt, systemPrompt, model = 'gpt-3.5-turbo', maxTokens = 512, temperature, stop],
+    context,
+  ) {
     coda.assertCondition(isChatCompletionModel(model), 'Must use `gpt-3.5-turbo`-related models for this formula.');
 
     if (userPrompt.length === 0) {
@@ -170,6 +183,7 @@ pack.addFormula({
       messages,
       max_tokens: maxTokens,
       temperature,
+      stop,
     };
 
     const result = await getChatCompletion(context, request);
@@ -221,10 +235,11 @@ pack.addFormula({
     modelParameter,
     numTokensParam,
     temperatureParam,
+    stopParam,
   ],
   resultType: coda.ValueType.String,
   execute: async function (
-    [prompt, trainingPrompts, trainingResponses, model = DEFAULT_MODEL, max_tokens = 512, temperature],
+    [prompt, trainingPrompts, trainingResponses, model = DEFAULT_MODEL, max_tokens = 512, temperature, stop],
     context,
   ) {
     coda.assertCondition(
@@ -243,6 +258,7 @@ pack.addFormula({
       prompt: exampleData + '```' + prompt + '\n',
       max_tokens,
       temperature,
+      stop,
     };
 
     const result = await getCompletion(context, request);
@@ -254,9 +270,9 @@ pack.addFormula({
 pack.addFormula({
   name: 'QuestionAnswer',
   description: 'Answer a question, simply provide a natural language question that you might ask Google or Wikipedia',
-  parameters: [promptParam, modelParameter, numTokensParam, temperatureParam],
+  parameters: [promptParam, modelParameter, numTokensParam, temperatureParam, stopParam],
   resultType: coda.ValueType.String,
-  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 128, temperature], context) {
+  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 128, temperature, stop], context) {
     if (prompt.length === 0) {
       return '';
     }
@@ -292,6 +308,7 @@ A: `;
       prompt: newPrompt,
       max_tokens,
       temperature,
+      stop,
     };
 
     const result = await getCompletion(context, request);
@@ -303,9 +320,9 @@ A: `;
 pack.addFormula({
   name: 'Summarize',
   description: 'Summarize a large chunk of text',
-  parameters: [promptParam, modelParameter, numTokensParam, temperatureParam],
+  parameters: [promptParam, modelParameter, numTokensParam, temperatureParam, stopParam],
   resultType: coda.ValueType.String,
-  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 64, temperature], context) {
+  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 64, temperature, stop], context) {
     if (prompt.length === 0) {
       return '';
     }
@@ -317,6 +334,7 @@ pack.addFormula({
       prompt: newPrompt,
       max_tokens,
       temperature,
+      stop,
     };
 
     const result = await getCompletion(context, request);
@@ -328,9 +346,9 @@ pack.addFormula({
 pack.addFormula({
   name: 'Keywords',
   description: 'Extract keywords from a large chunk of text',
-  parameters: [promptParam, modelParameter, numTokensParam, temperatureParam],
+  parameters: [promptParam, modelParameter, numTokensParam, temperatureParam, stopParam],
   resultType: coda.ValueType.String,
-  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 64, temperature], context) {
+  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 64, temperature, stop], context) {
     if (prompt.length === 0) {
       return '';
     }
@@ -343,6 +361,7 @@ ${prompt}`;
       prompt: newPrompt,
       max_tokens,
       temperature,
+      stop,
     };
 
     const result = await getCompletion(context, request);
@@ -354,9 +373,9 @@ ${prompt}`;
 pack.addFormula({
   name: 'MoodToColor',
   description: 'Generate a color for a mood',
-  parameters: [promptParam, modelParameter, numTokensParam, temperatureParam],
+  parameters: [promptParam, modelParameter, numTokensParam, temperatureParam, stopParam],
   resultType: coda.ValueType.String,
-  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 6, temperature], context) {
+  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 6, temperature, stop], context) {
     if (prompt.length === 0) {
       return '';
     }
@@ -369,6 +388,7 @@ background-color: #`;
       prompt: newPrompt,
       max_tokens,
       temperature,
+      stop,
     };
 
     const result = await getCompletion(context, request);
@@ -380,9 +400,9 @@ background-color: #`;
 pack.addFormula({
   name: 'SentimentClassifier',
   description: 'Categorizes sentiment of text into positive, neutral, or negative',
-  parameters: [promptParam, modelParameter, numTokensParam, temperatureParam],
+  parameters: [promptParam, modelParameter, numTokensParam, temperatureParam, stopParam],
   resultType: coda.ValueType.String,
-  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 20, temperature], context) {
+  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 20, temperature, stop], context) {
     if (prompt.length === 0) {
       return '';
     }
@@ -396,6 +416,7 @@ Sentiment: `;
       prompt: newPrompt,
       max_tokens,
       temperature,
+      stop,
     };
 
     const result = await getCompletion(context, request);
