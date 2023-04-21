@@ -136,6 +136,7 @@ const stopParam = coda.makeParameter({
 const commonPromptParams = {
   parameters: [promptParam, modelParameter, numTokensParam, temperatureParam, stopParam],
   resultType: coda.ValueType.String,
+  onError: handleError,
   execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 512, temperature, stop], context) {
     if (prompt.length === 0) {
       return '';
@@ -160,6 +161,7 @@ pack.addFormula({
     'Takes prompt as input, and return a model-generated message as output. Optionally, you can provide a system message to control the behavior of the chatbot.',
   parameters: [promptParam, systemPromptParam, modelParameter, numTokensParam, temperatureParam, stopParam],
   resultType: coda.ValueType.String,
+  onError: handleError,
   execute: async function (
     [userPrompt, systemPrompt, model = 'gpt-3.5-turbo', maxTokens = 512, temperature, stop],
     context,
@@ -238,6 +240,7 @@ pack.addFormula({
     stopParam,
   ],
   resultType: coda.ValueType.String,
+  onError: handleError,
   execute: async function (
     [prompt, trainingPrompts, trainingResponses, model = DEFAULT_MODEL, max_tokens = 512, temperature, stop],
     context,
@@ -272,6 +275,7 @@ pack.addFormula({
   description: 'Answer a question, simply provide a natural language question that you might ask Google or Wikipedia',
   parameters: [promptParam, modelParameter, numTokensParam, temperatureParam, stopParam],
   resultType: coda.ValueType.String,
+  onError: handleError,
   execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 128, temperature, stop], context) {
     if (prompt.length === 0) {
       return '';
@@ -322,6 +326,7 @@ pack.addFormula({
   description: 'Summarize a large chunk of text',
   parameters: [promptParam, modelParameter, numTokensParam, temperatureParam, stopParam],
   resultType: coda.ValueType.String,
+  onError: handleError,
   execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 64, temperature, stop], context) {
     if (prompt.length === 0) {
       return '';
@@ -348,6 +353,7 @@ pack.addFormula({
   description: 'Extract keywords from a large chunk of text',
   parameters: [promptParam, modelParameter, numTokensParam, temperatureParam, stopParam],
   resultType: coda.ValueType.String,
+  onError: handleError,
   execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 64, temperature, stop], context) {
     if (prompt.length === 0) {
       return '';
@@ -375,6 +381,7 @@ pack.addFormula({
   description: 'Generate a color for a mood',
   parameters: [promptParam, modelParameter, numTokensParam, temperatureParam, stopParam],
   resultType: coda.ValueType.String,
+  onError: handleError,
   execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 6, temperature, stop], context) {
     if (prompt.length === 0) {
       return '';
@@ -402,6 +409,7 @@ pack.addFormula({
   description: 'Categorizes sentiment of text into positive, neutral, or negative',
   parameters: [promptParam, modelParameter, numTokensParam, temperatureParam, stopParam],
   resultType: coda.ValueType.String,
+  onError: handleError,
   execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 20, temperature, stop], context) {
     if (prompt.length === 0) {
       return '';
@@ -477,6 +485,7 @@ pack.addFormula({
   ],
   resultType: coda.ValueType.String,
   codaType: coda.ValueHintType.ImageReference,
+  onError: handleError,
   execute: async function ([prompt, size = '512x512', style], context) {
     if (prompt.length === 0) {
       return '';
@@ -497,3 +506,21 @@ pack.addFormula({
     return `data:image/png;base64,${resp.body.data[0].b64_json}`;
   },
 });
+
+function handleError(error: Error) {
+  if (coda.StatusCodeError.isStatusCodeError(error)) {
+    // Cast the error as a StatusCodeError, for better intellisense.
+    let statusError = error as coda.StatusCodeError;
+    let message = statusError.body?.error?.message;
+
+    // If the API returned a 400 error with message, show it to the user.
+    if (statusError.statusCode === 400 && message) {
+      if (message) {
+        throw new coda.UserVisibleError(message);
+      }
+    }
+  }
+  // The request failed for some other reason. Re-throw the error so that it
+  // bubbles up.
+  throw error;
+}
