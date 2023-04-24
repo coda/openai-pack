@@ -482,11 +482,17 @@ pack.addFormula({
       },
     }),
     styleParameter,
+    coda.makeParameter({
+      type: coda.ParameterType.Boolean,
+      name: 'temporaryUrl',
+      description: 'Return a temporary URL that expires after an hour. Useful for adding the image to an Image column, because the default data URIs are too long.',
+      optional: true,
+    }),
   ],
   resultType: coda.ValueType.String,
   codaType: coda.ValueHintType.ImageReference,
   onError: handleError,
-  execute: async function ([prompt, size = '512x512', style], context) {
+  execute: async function ([prompt, size = '512x512', style, temporaryUrl], context) {
     if (prompt.length === 0) {
       return '';
     }
@@ -494,7 +500,7 @@ pack.addFormula({
     const request = {
       size,
       prompt: style ? prompt + ' ' + StyleNameToPrompt[style] ?? style : prompt,
-      response_format: 'b64_json',
+      response_format: temporaryUrl ? 'url' : 'b64_json',
     };
 
     const resp = await context.fetcher.fetch({
@@ -503,7 +509,11 @@ pack.addFormula({
       body: JSON.stringify(request),
       headers: {'Content-Type': 'application/json'},
     });
-    return `data:image/png;base64,${resp.body.data[0].b64_json}`;
+    if (temporaryUrl) {
+      return resp.body.data[0].url;
+    } else {
+      return `data:image/png;base64,${resp.body.data[0].b64_json}`;
+    }
   },
 });
 
