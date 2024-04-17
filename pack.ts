@@ -1,8 +1,14 @@
+// PLEASE READ BEFORE CONTRIBUTING
+// We want to keep Pack code here so that it's available via the Source Code tab in the listing page.
+// However, we want to keep it in sync with the https://github.com/coda/openai-pack repository. 
+// Please copy the changes you make here to the repository and verify diffs are only what you did, 
+// otherwise raise in #story-openai-pack
+
 import * as coda from '@codahq/packs-sdk';
 
 export const pack = coda.newPack();
 
-const DEFAULT_MODEL = 'text-ada-001';
+const DEFAULT_MODEL = 'gpt-3.5-turbo-instruct';
 
 pack.setUserAuthentication({
   type: coda.AuthenticationType.HeaderBearerToken,
@@ -87,16 +93,12 @@ const modelParameter = coda.makeParameter({
   type: coda.ParameterType.String,
   name: 'model',
   description:
-    "the GPT-3 model to process your request. If you don't specify a model, it defaults to text-ada-001, which is the fastest and lowest cost. For higher quality generation, consider text-davinci-003. For more information, see https://platform.openai.com/docs/models/overview.",
+    "the GPT-3 model to process your request. If you don't specify a model, it defaults to gpt-3.5-turbo-instruct, which is the fastest and lowest cost. For higher quality generation, consider gpt-4. For more information, see https://platform.openai.com/docs/models/overview.",
   optional: true,
   autocomplete: async () => {
     return [
-      'text-davinci-003',
-      'text-davinci-002',
-      'text-curie-001',
-      'text-babbage-001',
-      'text-ada-001',
       'gpt-3.5-turbo',
+      'gpt-3.5-turbo-instruct',
       'gpt-3.5-turbo-16k',
       'gpt-4',
       'gpt-4-32k',
