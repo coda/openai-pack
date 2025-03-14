@@ -9,6 +9,8 @@ import * as coda from '@codahq/packs-sdk';
 export const pack = coda.newPack();
 
 const DEFAULT_MODEL = 'gpt-3.5-turbo-instruct';
+const DEFAULT_IMAGE_MODEL = 'gpt-4o';
+const DEFAULT_IMAGE_DETAIL: 'low' | 'high' | 'auto' = 'auto';
 
 pack.setUserAuthentication({
   type: coda.AuthenticationType.HeaderBearerToken,
@@ -25,9 +27,20 @@ interface CompletionsRequest {
   stop?: string[];
 }
 
+interface ChatCompletionMessageContentImageUrl {
+  url: string;
+  detail: 'low' | 'high' | 'auto';
+}
+
+interface ChatCompletionMessageContent {
+  type: 'text' | 'image_url';
+  text?: string;
+  image_url?: string | ChatCompletionMessageContentImageUrl;
+}
+
 interface ChatCompletionMessage {
   role: 'system' | 'user';
-  content: string;
+  content: string | ChatCompletionMessageContent[];
 }
 
 interface ChatCompletionRequest {
@@ -41,6 +54,11 @@ interface ChatCompletionRequest {
 function isChatCompletionModel(model: string): boolean {
   // Also works with snapshot model like `gpt-3.5-turbo-0301` & `gpt-4-0314`
   return model.includes('gpt-3.5-turbo') || model.includes('gpt-4');
+}
+
+function isImageInputModel(model: string): boolean {
+  // Also works with snapshot model like `gpt-4o-2024-11-20` & `gpt-4o-mini-2024-07-18`
+  return model.includes('gpt-4o');
 }
 
 async function getChatCompletion(context: coda.ExecutionContext, request: ChatCompletionRequest): Promise<string> {
@@ -89,6 +107,26 @@ const promptParam = coda.makeParameter({
   description: 'prompt',
 });
 
+const imageUrlParam = coda.makeParameter({
+  type: coda.ParameterType.String,
+  name: 'imageUrl',
+  description: 'imageUrl',
+});
+
+const imageDetailParam = coda.makeParameter({
+  type: coda.ParameterType.String,
+  name: 'imageDetail',
+  description: 'the level of detail to use when processing and understanding the image (low, high, or auto to let the model decide)',
+  optional: true,
+  autocomplete: async () => {
+    return [
+      'low',
+      'high',
+      'auto',
+    ];
+  },
+});
+
 const modelParameter = coda.makeParameter({
   type: coda.ParameterType.String,
   name: 'model',
@@ -102,6 +140,8 @@ const modelParameter = coda.makeParameter({
       'gpt-3.5-turbo-16k',
       'gpt-4',
       'gpt-4-32k',
+      'gpt-4o',
+      'gpt-4o-mini',
     ];
   },
 });
@@ -182,6 +222,48 @@ pack.addFormula({
     }
 
     messages.push({role: 'user', content: userPrompt});
+
+    const request = {
+      model,
+      messages,
+      max_tokens: maxTokens,
+      temperature,
+      stop,
+    };
+
+    const result = await getChatCompletion(context, request);
+
+    return result;
+  },
+});
+
+pack.addFormula({
+  name: 'Vision',
+  description:
+    'Takes a prompt and an image URL as input, and return a model-generated message as output. Optionally, you can provide a system message to control the behavior of the chatbot.',
+  parameters: [imageUrlParam, promptParam, systemPromptParam, modelParameter, imageDetailParam, numTokensParam, temperatureParam, stopParam],
+  resultType: coda.ValueType.String,
+  onError: handleError,
+  execute: async function (
+    [imageUrl, userPrompt, systemPrompt, model = DEFAULT_IMAGE_MODEL, imageDetail = DEFAULT_IMAGE_DETAIL, maxTokens = 512, temperature, stop],
+    context,
+  ) {
+    coda.assertCondition(isImageInputModel(model), 'Must use `gpt-4o`-related models for this formula.');
+
+    if (imageUrl.length === 0 || userPrompt.length === 0) {
+      return '';
+    }
+
+    const messages: ChatCompletionMessage[] = [];
+
+    if (systemPrompt && systemPrompt.length > 0) {
+      messages.push({role: 'system', content: systemPrompt});
+    }
+
+    const textContent: ChatCompletionMessageContent = {type: 'text', text: userPrompt};
+    const imageUrlContent: ChatCompletionMessageContent = {type: 'image_url', image_url: {url: imageUrl, detail: imageDetail}};
+
+    messages.push({role: 'user', content: [textContent, imageUrlContent]});
 
     const request = {
       model,
