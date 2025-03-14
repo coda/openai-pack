@@ -10,7 +10,7 @@ export const pack = coda.newPack();
 
 const DEFAULT_MODEL = 'gpt-3.5-turbo-instruct';
 const DEFAULT_IMAGE_MODEL = 'gpt-4o';
-const DEFAULT_IMAGE_DETAIL: 'low' | 'high' | 'auto' = 'auto';
+const DEFAULT_IMAGE_DETAIL = 'auto';
 
 pack.setUserAuthentication({
   type: coda.AuthenticationType.HeaderBearerToken,
@@ -29,7 +29,7 @@ interface CompletionsRequest {
 
 interface ChatCompletionMessageContentImageUrl {
   url: string;
-  detail: 'low' | 'high' | 'auto';
+  detail: string;
 }
 
 interface ChatCompletionMessageContent {
