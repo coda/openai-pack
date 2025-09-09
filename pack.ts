@@ -157,12 +157,10 @@ const modelParameter = coda.makeParameter({
   description:
     "The AI model to process your request. Defaults to gpt-4o-mini (recommended: 60% cheaper than GPT-3.5, better quality). For premium: gpt-4o, gpt-4.1, or gpt-5. Legacy: gpt-3.5-turbo-instruct. See https://platform.openai.com/docs/models",
   optional: true,
-  autocomplete: async () => {
-    return [
-      ...MODEL_LISTS.original,
-      ...MODEL_LISTS.new,
-    ];
-  },
+  autocomplete: [
+    ...MODEL_LISTS.original,
+    ...MODEL_LISTS.new,
+  ],
 });
 
 const numTokensParam = coda.makeParameter({
@@ -519,9 +517,7 @@ const styleParameter = coda.makeParameter({
   description:
     "the style to use for your image. If you provide this, you don't need to specify the style in the prompt",
   optional: true,
-  autocomplete: async () => {
-    return Object.keys(StyleNameToPrompt);
-  },
+  autocomplete: Object.keys(StyleNameToPrompt),
 });
 
 pack.addFormula({
@@ -539,9 +535,7 @@ pack.addFormula({
       name: 'size',
       description: 'size',
       optional: true,
-      autocomplete: async () => {
-        return ['256x256', '512x512', '1024x1024'];
-      },
+      autocomplete: ['256x256', '512x512', '1024x1024'],
     }),
     styleParameter,
     coda.makeParameter({
@@ -687,14 +681,14 @@ pack.addFormula({
       name: 'model',
       description: 'Vision-capable model to use',
       optional: true,
-      autocomplete: async () => MODEL_LISTS.vision,
+      autocomplete: MODEL_LISTS.vision,
     }),
     coda.makeParameter({
       type: coda.ParameterType.String,
       name: 'detail',
       description: 'Image analysis detail level: low (faster), high (more detailed), auto (balanced)',
       optional: true,
-      autocomplete: async () => ['auto', 'low', 'high']
+      autocomplete: ['auto', 'low', 'high']
     }),
     coda.makeParameter({
       type: coda.ParameterType.Number,
@@ -752,7 +746,7 @@ pack.addFormula({
       name: 'model',
       description: 'Vision-capable model for OCR (gpt-4o recommended for best accuracy)',
       optional: true,
-      autocomplete: async () => MODEL_LISTS.vision.filter(model =>
+      autocomplete: MODEL_LISTS.vision.filter(model =>
         ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-5'].some(preferred => model.includes(preferred))
       ),
     }),
@@ -790,14 +784,14 @@ pack.addFormula({
       name: 'size',
       description: 'Image size for DALL-E 3',
       optional: true,
-      autocomplete: async () => ['1024x1024', '1024x1792', '1792x1024'],
+      autocomplete: ['1024x1024', '1024x1792', '1792x1024'],
     }),
     coda.makeParameter({
       type: coda.ParameterType.String,
       name: 'quality',
       description: 'Image quality level',
       optional: true,
-      autocomplete: async () => ['standard', 'hd']
+      autocomplete: ['standard', 'hd']
     }),
     styleParameter,
     coda.makeParameter({
