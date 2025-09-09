@@ -1,14 +1,52 @@
 // PLEASE READ BEFORE CONTRIBUTING
 // We want to keep Pack code here so that it's available via the Source Code tab in the listing page.
-// However, we want to keep it in sync with the https://github.com/coda/openai-pack repository. 
-// Please copy the changes you make here to the repository and verify diffs are only what you did, 
+// However, we want to keep it in sync with the https://github.com/coda/openai-pack repository.
+// Please copy the changes you make here to the repository and verify diffs are only what you did,
 // otherwise raise in #story-openai-pack
 
 import * as coda from '@codahq/packs-sdk';
 
 export const pack = coda.newPack();
 
-const DEFAULT_MODEL = 'gpt-3.5-turbo-instruct';
+const DEFAULT_MODEL = 'gpt-4o-mini';
+
+const MODEL_LISTS = {
+  // Original models in exact order for backward compatibility
+  original: [
+    'gpt-3.5-turbo',
+    'gpt-3.5-turbo-instruct',
+    'gpt-3.5-turbo-16k',
+    'gpt-4',
+    'gpt-4-32k',
+  ],
+  // New models added for expansion
+  new: [
+    'gpt-4o',
+    'gpt-4o-mini',
+    'gpt-4.1',
+    'gpt-4.1-mini',
+    'gpt-5',
+    'gpt-5-mini',
+    'o1',
+    'o1-mini',
+    'o3-mini',
+  ],
+  // Vision-capable models
+  vision: [
+    'gpt-4o',
+    'gpt-4o-mini',
+    'gpt-4.1',
+    'gpt-5',
+    'gpt-4-vision-preview',
+    'gpt-4-turbo'
+  ],
+  // Models that use max_completion_tokens instead of max_tokens
+  newTokenModels: ['gpt-5', 'gpt-4.1', 'o1', 'o3', 'o4-mini'],
+  // Chat completion models for detection
+  newChatModels: [
+    'gpt-5', 'gpt-4.1', 'gpt-4o', 'chatgpt-4o', 'o1', 'o3', 'o4-mini'
+  ]
+};
 
 pack.setUserAuthentication({
   type: coda.AuthenticationType.HeaderBearerToken,
@@ -40,14 +78,36 @@ interface ChatCompletionRequest {
 
 function isChatCompletionModel(model: string): boolean {
   // Also works with snapshot model like `gpt-3.5-turbo-0301` & `gpt-4-0314`
-  return model.includes('gpt-3.5-turbo') || model.includes('gpt-4');
+  if (!model.includes('gpt-3.5-turbo-instruct') && (model.includes('gpt-3.5-turbo') || model.includes('gpt-4'))) {
+    return true;
+  }
+
+  return MODEL_LISTS.newChatModels.some(newModel => model.includes(newModel));
+}
+
+function usesMaxCompletionTokens(model: string): boolean {
+  return MODEL_LISTS.newTokenModels.some(newModel => model.includes(newModel));
+}
+
+function buildRequestWithCompatibleParams(baseRequest: any): any {
+  if (!baseRequest.max_tokens || !usesMaxCompletionTokens(baseRequest.model)) {
+    return baseRequest;
+  }
+
+  // Convert max_tokens to max_completion_tokens for newer models
+  const compatibleRequest = { ...baseRequest };
+  compatibleRequest.max_completion_tokens = compatibleRequest.max_tokens;
+  delete compatibleRequest.max_tokens;
+  return compatibleRequest;
 }
 
 async function getChatCompletion(context: coda.ExecutionContext, request: ChatCompletionRequest): Promise<string> {
+  const compatibleRequest = buildRequestWithCompatibleParams(request);
+
   const resp = await context.fetcher.fetch({
     url: 'https://api.openai.com/v1/chat/completions',
     method: 'POST',
-    body: JSON.stringify(request),
+    body: JSON.stringify(compatibleRequest),
     headers: {'Content-Type': 'application/json'},
   });
   return resp.body.choices[0].message.content.trim();
@@ -65,10 +125,12 @@ async function getCompletion(context: coda.ExecutionContext, request: Completion
       });
     }
 
+    const compatibleRequest = buildRequestWithCompatibleParams(request);
+
     const resp = await context.fetcher.fetch({
       url: 'https://api.openai.com/v1/completions',
       method: 'POST',
-      body: JSON.stringify(request),
+      body: JSON.stringify(compatibleRequest),
       headers: {'Content-Type': 'application/json'},
     });
     return resp.body.choices[0].text.trim();
@@ -93,24 +155,19 @@ const modelParameter = coda.makeParameter({
   type: coda.ParameterType.String,
   name: 'model',
   description:
-    "the GPT-3 model to process your request. If you don't specify a model, it defaults to gpt-3.5-turbo-instruct, which is the fastest and lowest cost. For higher quality generation, consider gpt-4. For more information, see https://platform.openai.com/docs/models/overview.",
+    "The AI model to process your request. Defaults to gpt-4o-mini (recommended: 60% cheaper than GPT-3.5, better quality). For premium: gpt-4o, gpt-4.1, or gpt-5. Legacy: gpt-3.5-turbo-instruct. See https://platform.openai.com/docs/models",
   optional: true,
-  autocomplete: async () => {
-    return [
-      'gpt-3.5-turbo',
-      'gpt-3.5-turbo-instruct',
-      'gpt-3.5-turbo-16k',
-      'gpt-4',
-      'gpt-4-32k',
-    ];
-  },
+  autocomplete: [
+    ...MODEL_LISTS.original,
+    ...MODEL_LISTS.new,
+  ],
 });
 
 const numTokensParam = coda.makeParameter({
   type: coda.ParameterType.Number,
   name: 'numTokens',
   description:
-    'the maximum number of tokens for the completion to output. Defaults to 512. Maximum of 2048 for most models and 4000 for davinci',
+    'Maximum tokens in the response. Generous defaults prevent truncation (1536 for most formulas). Latest models support 128K+ context and 16K+ output tokens.',
   optional: true,
 });
 
@@ -118,7 +175,7 @@ const temperatureParam = coda.makeParameter({
   type: coda.ParameterType.Number,
   name: 'temperature',
   description:
-    'the temperature for how creative GPT-3 is with the completion. Must be between 0.0 and 1.0. Defaults to 1.0.',
+    'Controls creativity/randomness. 0.0 = focused/deterministic, 1.0 = creative/varied. Range: 0.0-1.0. Defaults to 1.0.',
   optional: true,
 });
 
@@ -140,7 +197,7 @@ const commonPromptParams = {
   parameters: [promptParam, modelParameter, numTokensParam, temperatureParam, stopParam],
   resultType: coda.ValueType.String,
   onError: handleError,
-  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 512, temperature, stop], context) {
+  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 1536, temperature, stop], context) {
     if (prompt.length === 0) {
       return '';
     }
@@ -161,15 +218,15 @@ const commonPromptParams = {
 pack.addFormula({
   name: 'ChatCompletion',
   description:
-    'Takes prompt as input, and return a model-generated message as output. Optionally, you can provide a system message to control the behavior of the chatbot.',
+    'Advanced AI chat with system prompt support. Uses GPT-4o-mini by default (cost-effective, high quality). Supports latest models including GPT-5, GPT-4.1, GPT-4o with vision capabilities.',
   parameters: [promptParam, systemPromptParam, modelParameter, numTokensParam, temperatureParam, stopParam],
   resultType: coda.ValueType.String,
   onError: handleError,
   execute: async function (
-    [userPrompt, systemPrompt, model = 'gpt-3.5-turbo', maxTokens = 512, temperature, stop],
+    [userPrompt, systemPrompt, model = 'gpt-4o-mini', maxTokens = 1536, temperature, stop],
     context,
   ) {
-    coda.assertCondition(isChatCompletionModel(model), 'Must use `gpt-3.5-turbo`-related models for this formula.');
+    coda.assertCondition(isChatCompletionModel(model), 'Must use chat completion models (gpt-3.5-turbo, gpt-4, gpt-4o, gpt-5, etc.) for this formula.');
 
     if (userPrompt.length === 0) {
       return '';
@@ -206,21 +263,21 @@ pack.addFormula({
 
 pack.addFormula({
   name: 'Prompt',
-  description: 'Complete text from a prompt',
+  description: 'Complete text from a prompt. Supports all models including GPT-5, GPT-4.1, GPT-4o. Generous 1536 token default prevents truncation.',
   ...commonPromptParams,
 } as any);
 
 pack.addFormula({
   name: 'AnswerPrompt',
   description:
-    'Complete text from a prompt, outputs the result from the action. This should only be used in a table in combination with outputting the result to a result column; otherwise, it takes no effect.',
+    'Complete text from a prompt as an action. Use in tables with result columns. Supports latest models with generous token limits (1536 default).',
   ...commonPromptParams,
   isAction: true,
 } as any);
 
 pack.addFormula({
   name: 'GPT3PromptExamples',
-  description: 'Complete text from a prompt and a set of examples',
+  description: 'Few-shot learning: provide examples to guide AI responses. Works with all models. 1536 token default for detailed examples.',
   parameters: [
     coda.makeParameter({
       type: coda.ParameterType.String,
@@ -245,7 +302,7 @@ pack.addFormula({
   resultType: coda.ValueType.String,
   onError: handleError,
   execute: async function (
-    [prompt, trainingPrompts, trainingResponses, model = DEFAULT_MODEL, max_tokens = 512, temperature, stop],
+    [prompt, trainingPrompts, trainingResponses, model = DEFAULT_MODEL, max_tokens = 1536, temperature, stop],
     context,
   ) {
     coda.assertCondition(
@@ -275,11 +332,11 @@ pack.addFormula({
 
 pack.addFormula({
   name: 'QuestionAnswer',
-  description: 'Answer a question, simply provide a natural language question that you might ask Google or Wikipedia',
+  description: 'Intelligent Q&A system with built-in fact checking. Returns "Unknown" for nonsensical questions. 384 token limit for detailed answers.',
   parameters: [promptParam, modelParameter, numTokensParam, temperatureParam, stopParam],
   resultType: coda.ValueType.String,
   onError: handleError,
-  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 128, temperature, stop], context) {
+  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 384, temperature, stop], context) {
     if (prompt.length === 0) {
       return '';
     }
@@ -326,11 +383,11 @@ A: `;
 
 pack.addFormula({
   name: 'Summarize',
-  description: 'Summarize a large chunk of text',
+  description: 'Generate concise summaries of long text. 192 token limit for detailed summaries without truncation.',
   parameters: [promptParam, modelParameter, numTokensParam, temperatureParam, stopParam],
   resultType: coda.ValueType.String,
   onError: handleError,
-  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 64, temperature, stop], context) {
+  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 192, temperature, stop], context) {
     if (prompt.length === 0) {
       return '';
     }
@@ -353,11 +410,11 @@ pack.addFormula({
 
 pack.addFormula({
   name: 'Keywords',
-  description: 'Extract keywords from a large chunk of text',
+  description: 'Extract key terms and phrases from text. 192 token limit allows comprehensive keyword extraction.',
   parameters: [promptParam, modelParameter, numTokensParam, temperatureParam, stopParam],
   resultType: coda.ValueType.String,
   onError: handleError,
-  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 64, temperature, stop], context) {
+  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 192, temperature, stop], context) {
     if (prompt.length === 0) {
       return '';
     }
@@ -381,16 +438,16 @@ ${prompt}`;
 
 pack.addFormula({
   name: 'MoodToColor',
-  description: 'Generate a color for a mood',
+  description: 'Convert mood/emotion descriptions into CSS hex color codes. Returns colors that represent the feeling.',
   parameters: [promptParam, modelParameter, numTokensParam, temperatureParam, stopParam],
   resultType: coda.ValueType.String,
   onError: handleError,
-  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 6, temperature, stop], context) {
+  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 10, temperature, stop], context) {
     if (prompt.length === 0) {
       return '';
     }
 
-    const newPrompt = `The css code for a color like ${prompt}:
+    const newPrompt = `Answer with hex code only. The css code for a color like ${prompt}:
 background-color: #`;
 
     const request = {
@@ -409,11 +466,11 @@ background-color: #`;
 
 pack.addFormula({
   name: 'SentimentClassifier',
-  description: 'Categorizes sentiment of text into positive, neutral, or negative',
+  description: 'Analyze text sentiment: returns "positive", "neutral", or "negative". Fast classification with 30 token limit.',
   parameters: [promptParam, modelParameter, numTokensParam, temperatureParam, stopParam],
   resultType: coda.ValueType.String,
   onError: handleError,
-  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 20, temperature, stop], context) {
+  execute: async function ([prompt, model = DEFAULT_MODEL, max_tokens = 30, temperature, stop], context) {
     if (prompt.length === 0) {
       return '';
     }
@@ -436,17 +493,6 @@ Sentiment: `;
   },
 });
 
-const styleParameter = coda.makeParameter({
-  type: coda.ParameterType.String,
-  name: 'style',
-  description:
-    "the style to use for your image. If you provide this, you don't need to specify the style in the prompt",
-  optional: true,
-  autocomplete: async () => {
-    return Object.keys(StyleNameToPrompt);
-  },
-});
-
 const StyleNameToPrompt = {
   'Cave wall': 'drawn on a cave wall',
   Basquiat: 'in the style of Basquiat',
@@ -465,9 +511,18 @@ const StyleNameToPrompt = {
   'Ukiyo-e': 'in the style of Ukiyo-e',
 };
 
+const styleParameter = coda.makeParameter({
+  type: coda.ParameterType.String,
+  name: 'style',
+  description:
+    "the style to use for your image. If you provide this, you don't need to specify the style in the prompt",
+  optional: true,
+  autocomplete: Object.keys(StyleNameToPrompt),
+});
+
 pack.addFormula({
   name: 'CreateDalleImage',
-  description: 'Create image from prompt',
+  description: 'Generate images from text prompts using DALL-E 2. Supports multiple sizes and artistic styles. Reliable and cost-effective.',
   cacheTtlSecs: 60 * 60,
   parameters: [
     coda.makeParameter({
@@ -480,9 +535,7 @@ pack.addFormula({
       name: 'size',
       description: 'size',
       optional: true,
-      autocomplete: async () => {
-        return ['256x256', '512x512', '1024x1024'];
-      },
+      autocomplete: ['256x256', '512x512', '1024x1024'],
     }),
     styleParameter,
     coda.makeParameter({
@@ -501,8 +554,9 @@ pack.addFormula({
     }
 
     const request = {
+      model: 'dall-e-2',
       size,
-      prompt: style ? prompt + ' ' + StyleNameToPrompt[style] ?? style : prompt,
+      prompt: style ? prompt + ' ' + (StyleNameToPrompt[style] ?? style) : prompt,
       response_format: temporaryUrl ? 'url' : 'b64_json',
     };
 
@@ -512,6 +566,266 @@ pack.addFormula({
       body: JSON.stringify(request),
       headers: {'Content-Type': 'application/json'},
     });
+    if (temporaryUrl) {
+      return resp.body.data[0].url;
+    } else {
+      return `data:image/png;base64,${resp.body.data[0].b64_json}`;
+    }
+  },
+});
+
+interface VisionChatCompletionMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string | Array<{type: string; text?: string; image_url?: {url: string; detail?: string}}>;
+}
+
+function isVisionCapableModel(model: string): boolean {
+  return MODEL_LISTS.vision.some(visionModel => model.includes(visionModel));
+}
+
+function validateImageUrl(imageUrl: string): void {
+  if (!imageUrl || imageUrl.trim().length === 0) {
+    throw new coda.UserVisibleError('Image URL cannot be empty.');
+  }
+
+  const isDataUri = imageUrl.startsWith('data:image/');
+  const isHttpUrl = imageUrl.startsWith('http://') || imageUrl.startsWith('https://');
+
+  if (!isDataUri && !isHttpUrl) {
+    throw new coda.UserVisibleError(
+      'Image URL must be either a valid HTTP/HTTPS URL or a data URI (data:image/png;base64,...).'
+    );
+  }
+
+  if (isDataUri) {
+    const supportedFormats = ['png', 'jpeg', 'jpg', 'gif', 'webp'];
+    const formatMatch = imageUrl.match(/^data:image\/([^;]+);base64,/);
+
+    if (!formatMatch) {
+      throw new coda.UserVisibleError(
+        'Data URI must be in format: data:image/[format];base64,[data]. Supported formats: PNG, JPEG, JPG, GIF, WebP.'
+      );
+    }
+
+    const format = formatMatch[1].toLowerCase();
+    if (!supportedFormats.includes(format)) {
+      throw new coda.UserVisibleError(
+        `Unsupported image format: ${format}. Supported formats: PNG, JPEG, JPG, GIF, WebP.`
+      );
+    }
+
+    const base64Data = imageUrl.split(',')[1];
+    if (!base64Data || base64Data.length === 0) {
+      throw new coda.UserVisibleError('Data URI contains no image data after base64 marker.');
+    }
+  }
+
+  if (isHttpUrl) {
+    const urlPattern = /^https?:\/\/[^\s/$.?#].[^\s]*$/i;
+    if (!urlPattern.test(imageUrl)) {
+      throw new coda.UserVisibleError('Invalid HTTP/HTTPS URL format.');
+    }
+  }
+}
+
+async function getVisionChatCompletion(context: coda.ExecutionContext, model: string, messages: VisionChatCompletionMessage[], maxTokens?: number, temperature?: number): Promise<string> {
+  const request: any = { model, messages };
+
+  if (maxTokens) {
+    if (usesMaxCompletionTokens(model)) {
+      request.max_completion_tokens = maxTokens;
+    } else {
+      request.max_tokens = maxTokens;
+    }
+  }
+
+  if (temperature !== undefined) {
+    request.temperature = temperature;
+  }
+
+  try {
+    const resp = await context.fetcher.fetch({
+      url: 'https://api.openai.com/v1/chat/completions',
+      method: 'POST',
+      body: JSON.stringify(request),
+      headers: {'Content-Type': 'application/json'},
+    });
+    return resp.body.choices[0].message.content?.trim() || '';
+  } catch (err: any) {
+    if (err.statusCode === 429 && err.type === 'insufficient_quota') {
+      throw new coda.UserVisibleError(
+        "You've exceed your current OpenAI API quota. Please check your plan and billing details. For help, see https://help.openai.com/en/articles/6891831-error-code-429-you-exceeded-your-current-quota-please-check-your-plan-and-billing-details",
+      );
+    }
+
+    throw err;
+  }
+}
+
+pack.addFormula({
+  name: 'AnalyzeImage',
+  description: 'Analyze images using GPT-4 Vision. Extract text (OCR), describe images, answer questions about visual content.',
+  parameters: [
+    coda.makeParameter({
+      type: coda.ParameterType.String,
+      name: 'imageUrl',
+      description: 'URL of the image to analyze, or data URI (data:image/png;base64,...)',
+    }),
+    coda.makeParameter({
+      type: coda.ParameterType.String,
+      name: 'prompt',
+      description: 'Question or instruction about the image. For OCR, use: "Extract all text from this image"',
+    }),
+    coda.makeParameter({
+      type: coda.ParameterType.String,
+      name: 'model',
+      description: 'Vision-capable model to use',
+      optional: true,
+      autocomplete: MODEL_LISTS.vision,
+    }),
+    coda.makeParameter({
+      type: coda.ParameterType.String,
+      name: 'detail',
+      description: 'Image analysis detail level: low (faster), high (more detailed), auto (balanced)',
+      optional: true,
+      autocomplete: ['auto', 'low', 'high']
+    }),
+    coda.makeParameter({
+      type: coda.ParameterType.Number,
+      name: 'maxTokens',
+      description: 'Maximum tokens for response (default 1000)',
+      optional: true,
+    }),
+  ],
+  resultType: coda.ValueType.String,
+  onError: handleError,
+  execute: async function ([imageUrl, prompt, model = 'gpt-4o', detail = 'auto', maxTokens = 1000], context) {
+    coda.assertCondition(isVisionCapableModel(model), `Model '${model}' doesn't support vision. Use gpt-4o, gpt-4.1, gpt-5, or gpt-4-vision-preview.`);
+
+    if (!prompt || prompt.trim().length === 0) {
+      throw new coda.UserVisibleError('Prompt is required. Please provide instructions or a question about the image.');
+    }
+
+    validateImageUrl(imageUrl);
+
+    const messages: VisionChatCompletionMessage[] = [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: prompt,
+          },
+          {
+            type: 'image_url',
+            image_url: {
+              url: imageUrl,
+              detail: detail as 'low' | 'high' | 'auto',
+            },
+          },
+        ],
+      },
+    ];
+
+    const result = await getVisionChatCompletion(context, model, messages, maxTokens);
+    return result;
+  },
+});
+
+pack.addFormula({
+  name: 'ExtractTextOCR',
+  description: 'Extract all text from images using advanced OCR capabilities via GPT-4 Vision.',
+  parameters: [
+    coda.makeParameter({
+      type: coda.ParameterType.String,
+      name: 'imageUrl',
+      description: 'URL of the image containing text to extract, or data URI',
+    }),
+    coda.makeParameter({
+      type: coda.ParameterType.String,
+      name: 'model',
+      description: 'Vision-capable model for OCR (gpt-4o recommended for best accuracy)',
+      optional: true,
+      autocomplete: MODEL_LISTS.vision.filter(model =>
+        ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-5'].some(preferred => model.includes(preferred))
+      ),
+    }),
+  ],
+  resultType: coda.ValueType.String,
+  onError: handleError,
+  execute: async function ([imageUrl, model = 'gpt-4o'], context) {
+    coda.assertCondition(isVisionCapableModel(model), `Model '${model}' doesn't support vision. Use gpt-4o, gpt-4.1, gpt-5, or gpt-4-vision-preview for OCR.`);
+
+    validateImageUrl(imageUrl);
+
+    return pack.formulas.find(f => f.name === 'AnalyzeImage')!.execute([
+      imageUrl,
+      'Extract all text from this image. Return only the text content, preserving original formatting and structure as much as possible. Do not add commentary or descriptions.',
+      model,
+      'high', // Use high detail for better OCR accuracy
+      1500     // More tokens for longer text extraction
+    ], context) as string;
+  },
+});
+
+// ADDITION: New CreateImageDALLE3 formula (separate from original CreateDalleImage)
+pack.addFormula({
+  name: 'CreateImageDALLE3',
+  description: 'Generate images using DALL-E 3 with enhanced quality, better prompt following, and larger sizes.',
+  cacheTtlSecs: 60 * 60,
+  parameters: [
+    coda.makeParameter({
+      type: coda.ParameterType.String,
+      name: 'prompt',
+      description: 'Detailed description of the image to generate',
+    }),
+    coda.makeParameter({
+      type: coda.ParameterType.String,
+      name: 'size',
+      description: 'Image size for DALL-E 3',
+      optional: true,
+      autocomplete: ['1024x1024', '1024x1792', '1792x1024'],
+    }),
+    coda.makeParameter({
+      type: coda.ParameterType.String,
+      name: 'quality',
+      description: 'Image quality level',
+      optional: true,
+      autocomplete: ['standard', 'hd']
+    }),
+    styleParameter,
+    coda.makeParameter({
+      type: coda.ParameterType.Boolean,
+      name: 'temporaryUrl',
+      description: 'Return temporary URL (expires in 1 hour) instead of data URI for easier embedding',
+      optional: true,
+    }),
+  ],
+  resultType: coda.ValueType.String,
+  codaType: coda.ValueHintType.ImageReference,
+  onError: handleError,
+  execute: async function ([prompt, size = '1024x1024', quality = 'standard', style, temporaryUrl], context) {
+    if (prompt.length === 0) {
+      return '';
+    }
+
+    const styledPrompt = style ? prompt + ' ' + (StyleNameToPrompt[style] ?? style) : prompt;
+
+    const request = {
+      model: 'dall-e-3',
+      prompt: styledPrompt,
+      size,
+      quality,
+      response_format: temporaryUrl ? 'url' : 'b64_json',
+    };
+
+    const resp = await context.fetcher.fetch({
+      url: 'https://api.openai.com/v1/images/generations',
+      method: 'POST',
+      body: JSON.stringify(request),
+      headers: {'Content-Type': 'application/json'},
+    });
+
     if (temporaryUrl) {
       return resp.body.data[0].url;
     } else {
