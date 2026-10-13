@@ -515,62 +515,107 @@ const styleParameter = coda.makeParameter({
   type: coda.ParameterType.String,
   name: 'style',
   description:
-    "the style to use for your image. If you provide this, you don't need to specify the style in the prompt",
+    'Artistic style appended to the prompt. Choose a preset or enter your own description; omit to use only the prompt.',
   optional: true,
   autocomplete: Object.keys(StyleNameToPrompt),
 });
 
+const IMAGE_SIZES = new Map([
+  ['256x256', '1024x1024'],
+  ['512x512', '1024x1024'],
+  ['1024x1024', '1024x1024'],
+  ['1024x1792', '1024x1536'],
+  ['1792x1024', '1536x1024'],
+  ['1024x1536', '1024x1536'],
+  ['1536x1024', '1536x1024'],
+]);
+
+const IMAGE_QUALITIES = new Map([
+  ['standard', 'medium'],
+  ['hd', 'high'],
+  ['low', 'low'],
+  ['medium', 'medium'],
+  ['high', 'high'],
+  ['auto', 'auto'],
+]);
+
+async function generateImage(
+  context: coda.ExecutionContext,
+  prompt: string,
+  size: string,
+  quality: string,
+  temporaryUrl?: boolean,
+): Promise<string> {
+  const imageSize = IMAGE_SIZES.get(size);
+  const imageQuality = IMAGE_QUALITIES.get(quality);
+  if (!imageSize) {
+    throw new coda.UserVisibleError('Unsupported image size. Use 1024x1024, 1024x1536, or 1536x1024.');
+  }
+  if (!imageQuality) {
+    throw new coda.UserVisibleError('Unsupported image quality. Use low, medium, high, or auto.');
+  }
+
+  const request = {
+    model: 'gpt-image-2.5-flare',
+    prompt,
+    size: imageSize,
+    quality: imageQuality,
+    output_format: 'png',
+  };
+  const response = await context.fetcher.fetch({
+    url: 'https://api.openai.com/v1/images/generations',
+    method: 'POST',
+    body: JSON.stringify(request),
+    headers: {'Content-Type': 'application/json'},
+  });
+  const imageBase64 = response.body?.data?.[0]?.b64_json;
+  if (typeof imageBase64 !== 'string' || imageBase64.length === 0) {
+    throw new coda.UserVisibleError('OpenAI returned no image data.');
+  }
+
+  if (temporaryUrl) {
+    return context.temporaryBlobStorage.storeBlob(Buffer.from(imageBase64, 'base64'), 'image/png');
+  }
+  return `data:image/png;base64,${imageBase64}`;
+}
+
 pack.addFormula({
   name: 'CreateDalleImage',
-  description: 'Generate images from text prompts using DALL-E 2. Supports multiple sizes and artistic styles. Reliable and cost-effective.',
-  cacheTtlSecs: 60 * 60,
+  description:
+    'Generate a PNG image with GPT Image 2.5 Flare at low quality.',
+  cacheTtlSecs: 10 * 60,
   parameters: [
     coda.makeParameter({
       type: coda.ParameterType.String,
       name: 'prompt',
-      description: 'prompt',
+      description: 'Description of the image to generate. An empty string returns an empty result.',
     }),
     coda.makeParameter({
       type: coda.ParameterType.String,
       name: 'size',
-      description: 'size',
+      description: 'Image dimensions: 1024x1024 (default), 1024x1536, or 1536x1024. Legacy mappings: 256x256/512x512 to 1024x1024; 1024x1792 to 1024x1536; 1792x1024 to 1536x1024.',
       optional: true,
-      autocomplete: ['256x256', '512x512', '1024x1024'],
+      autocomplete: ['1024x1024', '1024x1536', '1536x1024'],
     }),
     styleParameter,
     coda.makeParameter({
       type: coda.ParameterType.Boolean,
       name: 'temporaryUrl',
-      description: 'Return a temporary URL that expires after an hour. Useful for adding the image to an Image column, because the default data URIs are too long.',
+      description:
+        'Return a temporary image URL when true (expires after 15 minutes by default). False or omitted returns a PNG data URI.',
       optional: true,
     }),
   ],
   resultType: coda.ValueType.String,
   codaType: coda.ValueHintType.ImageReference,
   onError: handleError,
-  execute: async function ([prompt, size = '512x512', style, temporaryUrl], context) {
+  execute: async function ([prompt, size = '1024x1024', style, temporaryUrl], context) {
     if (prompt.length === 0) {
       return '';
     }
 
-    const request = {
-      model: 'dall-e-2',
-      size,
-      prompt: style ? prompt + ' ' + (StyleNameToPrompt[style] ?? style) : prompt,
-      response_format: temporaryUrl ? 'url' : 'b64_json',
-    };
-
-    const resp = await context.fetcher.fetch({
-      url: 'https://api.openai.com/v1/images/generations',
-      method: 'POST',
-      body: JSON.stringify(request),
-      headers: {'Content-Type': 'application/json'},
-    });
-    if (temporaryUrl) {
-      return resp.body.data[0].url;
-    } else {
-      return `data:image/png;base64,${resp.body.data[0].b64_json}`;
-    }
+    const styledPrompt = style ? prompt + ' ' + (StyleNameToPrompt[style] ?? style) : prompt;
+    return generateImage(context, styledPrompt, size, 'low', temporaryUrl);
   },
 });
 
@@ -771,66 +816,49 @@ pack.addFormula({
 // ADDITION: New CreateImageDALLE3 formula (separate from original CreateDalleImage)
 pack.addFormula({
   name: 'CreateImageDALLE3',
-  description: 'Generate images using DALL-E 3 with enhanced quality, better prompt following, and larger sizes.',
-  cacheTtlSecs: 60 * 60,
+  description: 'Generate a PNG image with GPT Image 2.5 Flare. Default quality: medium.',
+  cacheTtlSecs: 10 * 60,
   parameters: [
     coda.makeParameter({
       type: coda.ParameterType.String,
       name: 'prompt',
-      description: 'Detailed description of the image to generate',
+      description: 'Description of the image to generate. An empty string returns an empty result.',
     }),
     coda.makeParameter({
       type: coda.ParameterType.String,
       name: 'size',
-      description: 'Image size for DALL-E 3',
+      description:
+        'Image dimensions: 1024x1024 (default), 1024x1536, or 1536x1024. Legacy mappings: 256x256/512x512 to 1024x1024; 1024x1792 to 1024x1536; 1792x1024 to 1536x1024.',
       optional: true,
-      autocomplete: ['1024x1024', '1024x1792', '1792x1024'],
+      autocomplete: ['1024x1024', '1024x1536', '1536x1024'],
     }),
     coda.makeParameter({
       type: coda.ParameterType.String,
       name: 'quality',
-      description: 'Image quality level',
+      description: 'Image quality: low, medium (default), high, or auto. Legacy standard maps to medium; hd maps to high.',
       optional: true,
-      autocomplete: ['standard', 'hd']
+      autocomplete: ['low', 'medium', 'high', 'auto']
     }),
     styleParameter,
     coda.makeParameter({
       type: coda.ParameterType.Boolean,
       name: 'temporaryUrl',
-      description: 'Return temporary URL (expires in 1 hour) instead of data URI for easier embedding',
+      description:
+        'Return a temporary image URL when true (expires after 15 minutes by default). False or omitted returns a PNG data URI.',
       optional: true,
     }),
   ],
   resultType: coda.ValueType.String,
   codaType: coda.ValueHintType.ImageReference,
   onError: handleError,
-  execute: async function ([prompt, size = '1024x1024', quality = 'standard', style, temporaryUrl], context) {
+  execute: async function ([prompt, size = '1024x1024', quality = 'medium', style, temporaryUrl], context) {
     if (prompt.length === 0) {
       return '';
     }
 
     const styledPrompt = style ? prompt + ' ' + (StyleNameToPrompt[style] ?? style) : prompt;
 
-    const request = {
-      model: 'dall-e-3',
-      prompt: styledPrompt,
-      size,
-      quality,
-      response_format: temporaryUrl ? 'url' : 'b64_json',
-    };
-
-    const resp = await context.fetcher.fetch({
-      url: 'https://api.openai.com/v1/images/generations',
-      method: 'POST',
-      body: JSON.stringify(request),
-      headers: {'Content-Type': 'application/json'},
-    });
-
-    if (temporaryUrl) {
-      return resp.body.data[0].url;
-    } else {
-      return `data:image/png;base64,${resp.body.data[0].b64_json}`;
-    }
+    return generateImage(context, styledPrompt, size, quality, temporaryUrl);
   },
 });
 
