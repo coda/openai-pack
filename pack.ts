@@ -10,6 +10,7 @@ export const pack = coda.newPack();
 
 const DEFAULT_MODEL = 'gpt-4o-mini';
 
+// Model catalog (verified 2026-10-13): https://developers.openai.com/api/docs/models
 const MODEL_LISTS = {
   // Original models in exact order for backward compatibility
   original: [
@@ -30,6 +31,25 @@ const MODEL_LISTS = {
     'o1',
     'o1-mini',
     'o3-mini',
+    'gpt-4-turbo',
+    'gpt-4.1-nano',
+    'gpt-5-nano',
+    'gpt-5.1',
+    'gpt-5.2',
+    'gpt-5.4',
+    'gpt-5.4-mini',
+    'gpt-5.4-nano',
+    'gpt-5.5',
+    'gpt-5.6-sol',
+    'gpt-5.6-terra',
+    'gpt-5.6-luna',
+    'gpt-6-astra',
+    'gpt-6-sol',
+    'gpt-6-luna',
+    'gpt-6.1-sol',
+    'chat-latest',
+    'o3',
+    'o4-mini',
   ],
   // Vision-capable models
   vision: [
@@ -38,13 +58,31 @@ const MODEL_LISTS = {
     'gpt-4.1',
     'gpt-5',
     'gpt-4-vision-preview',
-    'gpt-4-turbo'
+    'gpt-4-turbo',
+    'gpt-4.1-nano',
+    'gpt-5-nano',
+    'gpt-5.1',
+    'gpt-5.2',
+    'gpt-5.4',
+    'gpt-5.4-mini',
+    'gpt-5.4-nano',
+    'gpt-5.5',
+    'gpt-5.6-sol',
+    'gpt-5.6-terra',
+    'gpt-5.6-luna',
+    'gpt-6-astra',
+    'gpt-6-sol',
+    'gpt-6-luna',
+    'gpt-6.1-sol',
+    'chat-latest',
+    'o3',
+    'o4-mini',
   ],
   // Models that use max_completion_tokens instead of max_tokens
-  newTokenModels: ['gpt-5', 'gpt-4.1', 'o1', 'o3', 'o4-mini'],
+  newTokenModels: ['gpt-5', 'gpt-4.1', 'o1', 'o3', 'o4-mini', 'gpt-6', 'chat-latest'],
   // Chat completion models for detection
   newChatModels: [
-    'gpt-5', 'gpt-4.1', 'gpt-4o', 'chatgpt-4o', 'o1', 'o3', 'o4-mini'
+    'gpt-5', 'gpt-4.1', 'gpt-4o', 'chatgpt-4o', 'o1', 'o3', 'o4-mini', 'gpt-6', 'chat-latest'
   ]
 };
 
@@ -148,14 +186,14 @@ async function getCompletion(context: coda.ExecutionContext, request: Completion
 const promptParam = coda.makeParameter({
   type: coda.ParameterType.String,
   name: 'prompt',
-  description: 'prompt',
+  description: 'Text or instructions for the model. An empty string returns an empty result.',
 });
 
 const modelParameter = coda.makeParameter({
   type: coda.ParameterType.String,
   name: 'model',
   description:
-    "The AI model to process your request. Defaults to gpt-4o-mini (recommended: 60% cheaper than GPT-3.5, better quality). For premium: gpt-4o, gpt-4.1, or gpt-5. Legacy: gpt-3.5-turbo-instruct. See https://platform.openai.com/docs/models",
+    "OpenAI model ID (default: gpt-4o-mini). Availability depends on your account; some legacy suggestions may be retired. See https://developers.openai.com/api/docs/models",
   optional: true,
   autocomplete: [
     ...MODEL_LISTS.original,
@@ -167,7 +205,7 @@ const numTokensParam = coda.makeParameter({
   type: coda.ParameterType.Number,
   name: 'numTokens',
   description:
-    'Maximum tokens in the response. Generous defaults prevent truncation (1536 for most formulas). Latest models support 128K+ context and 16K+ output tokens.',
+    'Maximum generated tokens, including reasoning tokens where applicable. The default varies by formula. Increase for longer responses or reasoning models.',
   optional: true,
 });
 
@@ -175,21 +213,21 @@ const temperatureParam = coda.makeParameter({
   type: coda.ParameterType.Number,
   name: 'temperature',
   description:
-    'Controls creativity/randomness. 0.0 = focused/deterministic, 1.0 = creative/varied. Range: 0.0-1.0. Defaults to 1.0.',
+    'Sampling randomness from 0 to 2, where supported. Lower values are more focused. Omit to use the model default; some reasoning models reject this parameter.',
   optional: true,
 });
 
 const systemPromptParam = coda.makeParameter({
   type: coda.ParameterType.String,
   name: 'systemPrompt',
-  description: "Optional. Helps define the behavior of the assistant. e.g. 'You are a helpful assistant.'",
+  description: "Instructions for the assistant, such as 'You are a helpful assistant.' Omit to send only the prompt.",
   optional: true,
 });
 
 const stopParam = coda.makeParameter({
   type: coda.ParameterType.StringArray,
   name: 'stop',
-  description: 'Optional. Up to 4 sequences where the API will stop generating further tokens.',
+  description: 'Up to 4 text sequences that stop generation for legacy text-completion models. Ignored for chat models in this formula. Omit for no custom stop sequences.',
   optional: true,
 });
 
@@ -218,8 +256,18 @@ const commonPromptParams = {
 pack.addFormula({
   name: 'ChatCompletion',
   description:
-    'Advanced AI chat with system prompt support. Uses GPT-4o-mini by default (cost-effective, high quality). Supports latest models including GPT-5, GPT-4.1, GPT-4o with vision capabilities.',
-  parameters: [promptParam, systemPromptParam, modelParameter, numTokensParam, temperatureParam, stopParam],
+    'Generate a text response with optional system instructions. Requires a chat model. Default token limit: 1536.',
+  parameters: [
+    promptParam,
+    systemPromptParam,
+    modelParameter,
+    numTokensParam,
+    temperatureParam,
+    {
+      ...stopParam,
+      description: 'Up to 4 text sequences that stop generation, where supported by the model. Unsupported by o3 and o4-mini. Omit for no custom stop sequences.',
+    },
+  ],
   resultType: coda.ValueType.String,
   onError: handleError,
   execute: async function (
@@ -256,43 +304,43 @@ pack.addFormula({
 
 pack.addFormula({
   name: 'GPT3Prompt',
-  description: 'Complete text from a prompt',
+  description: 'Generate a text response from a prompt. Default token limit: 1536.',
   ...commonPromptParams,
   isExperimental: true,
 } as any);
 
 pack.addFormula({
   name: 'Prompt',
-  description: 'Complete text from a prompt. Supports all models including GPT-5, GPT-4.1, GPT-4o. Generous 1536 token default prevents truncation.',
+  description: 'Generate a text response from a prompt. Default token limit: 1536.',
   ...commonPromptParams,
 } as any);
 
 pack.addFormula({
   name: 'AnswerPrompt',
   description:
-    'Complete text from a prompt as an action. Use in tables with result columns. Supports latest models with generous token limits (1536 default).',
+    'Generate a text response as a button or automation action. Default token limit: 1536.',
   ...commonPromptParams,
   isAction: true,
 } as any);
 
 pack.addFormula({
   name: 'GPT3PromptExamples',
-  description: 'Few-shot learning: provide examples to guide AI responses. Works with all models. 1536 token default for detailed examples.',
+  description: 'Generate a response using paired example prompts and responses. Default token limit: 1536.',
   parameters: [
     coda.makeParameter({
       type: coda.ParameterType.String,
       name: 'prompt',
-      description: 'prompt',
+      description: 'Text or instructions for the model. An empty string returns an empty result.',
     }),
     coda.makeParameter({
       type: coda.ParameterType.StringArray,
       name: 'trainingPrompts',
-      description: 'Example prompts. Should be the same length as `trainingResponses`',
+      description: 'Example prompts to include before your prompt. Provide at least one, paired in order with trainingResponses.',
     }),
     coda.makeParameter({
       type: coda.ParameterType.StringArray,
       name: 'trainingResponses',
-      description: 'Example responses corresponding to `trainingPrompts`. Should be the same length.',
+      description: 'Example responses paired in order with trainingPrompts. Both lists must contain the same number of items.',
     }),
     modelParameter,
     numTokensParam,
@@ -332,7 +380,7 @@ pack.addFormula({
 
 pack.addFormula({
   name: 'QuestionAnswer',
-  description: 'Intelligent Q&A system with built-in fact checking. Returns "Unknown" for nonsensical questions. 384 token limit for detailed answers.',
+  description: 'Answer a question, with instructions to return "Unknown" when there is no clear answer. Default token limit: 384.',
   parameters: [promptParam, modelParameter, numTokensParam, temperatureParam, stopParam],
   resultType: coda.ValueType.String,
   onError: handleError,
@@ -383,7 +431,7 @@ A: `;
 
 pack.addFormula({
   name: 'Summarize',
-  description: 'Generate concise summaries of long text. 192 token limit for detailed summaries without truncation.',
+  description: 'Summarize the supplied text. Default token limit: 192.',
   parameters: [promptParam, modelParameter, numTokensParam, temperatureParam, stopParam],
   resultType: coda.ValueType.String,
   onError: handleError,
@@ -410,7 +458,7 @@ pack.addFormula({
 
 pack.addFormula({
   name: 'Keywords',
-  description: 'Extract key terms and phrases from text. 192 token limit allows comprehensive keyword extraction.',
+  description: 'Extract key terms and phrases from text. Default token limit: 192.',
   parameters: [promptParam, modelParameter, numTokensParam, temperatureParam, stopParam],
   resultType: coda.ValueType.String,
   onError: handleError,
@@ -438,7 +486,7 @@ ${prompt}`;
 
 pack.addFormula({
   name: 'MoodToColor',
-  description: 'Convert mood/emotion descriptions into CSS hex color codes. Returns colors that represent the feeling.',
+  description: 'Suggest a hexadecimal color code for a mood or feeling. Default token limit: 10.',
   parameters: [promptParam, modelParameter, numTokensParam, temperatureParam, stopParam],
   resultType: coda.ValueType.String,
   onError: handleError,
@@ -466,7 +514,7 @@ background-color: #`;
 
 pack.addFormula({
   name: 'SentimentClassifier',
-  description: 'Analyze text sentiment: returns "positive", "neutral", or "negative". Fast classification with 30 token limit.',
+  description: 'Classify text sentiment as positive, neutral, or negative. Default token limit: 30.',
   parameters: [promptParam, modelParameter, numTokensParam, temperatureParam, stopParam],
   resultType: coda.ValueType.String,
   onError: handleError,
@@ -709,36 +757,36 @@ async function getVisionChatCompletion(context: coda.ExecutionContext, model: st
 
 pack.addFormula({
   name: 'AnalyzeImage',
-  description: 'Analyze images using GPT-4 Vision. Extract text (OCR), describe images, answer questions about visual content.',
+  description: 'Describe an image, answer questions about it, or read its text using a model that accepts image input.',
   parameters: [
     coda.makeParameter({
       type: coda.ParameterType.String,
       name: 'imageUrl',
-      description: 'URL of the image to analyze, or data URI (data:image/png;base64,...)',
+      description: 'HTTP/HTTPS URL accessible to OpenAI, or a base64 image data URI (data:image/png;base64,...). Use PNG, JPEG, WebP, or a non-animated GIF.',
     }),
     coda.makeParameter({
       type: coda.ParameterType.String,
       name: 'prompt',
-      description: 'Question or instruction about the image. For OCR, use: "Extract all text from this image"',
+      description: 'Required, non-empty question or instruction about the image. For OCR, use: "Extract all text from this image".',
     }),
     coda.makeParameter({
       type: coda.ParameterType.String,
       name: 'model',
-      description: 'Vision-capable model to use',
+      description: 'OpenAI model that accepts image input (default: gpt-4o). Availability depends on your account; some legacy suggestions may be retired. See https://developers.openai.com/api/docs/models',
       optional: true,
       autocomplete: MODEL_LISTS.vision,
     }),
     coda.makeParameter({
       type: coda.ParameterType.String,
       name: 'detail',
-      description: 'Image analysis detail level: low (faster), high (more detailed), auto (balanced)',
+      description: 'Image detail level, such as auto (default), low, or high. Availability depends on the model.',
       optional: true,
       autocomplete: ['auto', 'low', 'high']
     }),
     coda.makeParameter({
       type: coda.ParameterType.Number,
       name: 'maxTokens',
-      description: 'Maximum tokens for response (default 1000)',
+      description: 'Maximum generated tokens (default: 1000), including reasoning tokens where applicable. Increase for longer responses or reasoning models.',
       optional: true,
     }),
   ],
@@ -779,20 +827,22 @@ pack.addFormula({
 
 pack.addFormula({
   name: 'ExtractTextOCR',
-  description: 'Extract all text from images using advanced OCR capabilities via GPT-4 Vision.',
+  description: 'Read text from an image, asking the model to preserve formatting and omit commentary. Uses high image detail and a fixed token limit of 1500.',
   parameters: [
     coda.makeParameter({
       type: coda.ParameterType.String,
       name: 'imageUrl',
-      description: 'URL of the image containing text to extract, or data URI',
+      description: 'HTTP/HTTPS URL accessible to OpenAI, or a base64 image data URI (data:image/png;base64,...). Use PNG, JPEG, WebP, or a non-animated GIF.',
     }),
     coda.makeParameter({
       type: coda.ParameterType.String,
       name: 'model',
-      description: 'Vision-capable model for OCR (gpt-4o recommended for best accuracy)',
+      description: 'OpenAI model that accepts image input (default: gpt-4o). Availability depends on your account; some legacy suggestions may be retired. See https://developers.openai.com/api/docs/models',
       optional: true,
       autocomplete: MODEL_LISTS.vision.filter(model =>
-        ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-5'].some(preferred => model.includes(preferred))
+        ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-5', 'gpt-4-turbo', 'gpt-6', 'chat-latest', 'o3', 'o4-mini'].some(
+          preferred => model.includes(preferred)
+        )
       ),
     }),
   ],
